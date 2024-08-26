@@ -1,0 +1,96 @@
+import tkinter as tk
+from tkinter import filedialog
+import requests
+import nltk
+nltk.download('stopwords')
+nltk.download('punkt')
+from bs4 import BeautifulSoup
+from collections import Counter
+!pip install "ipywidgets>=7,<8"
+
+def extract_keywords(url):
+    """Extracts keywords that appear at least 3 times from a given URL."""
+
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching URL: {e}")
+        return None
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    # Remove script and style tags to reduce noise
+    for script in soup(['script', 'style']):
+        script.extract()
+
+    # Extract text content
+    text = soup.get_text()
+
+    # Tokenize and remove stop words (optional)
+    stop_words = set(stopwords.words('english'))
+    words = word_tokenize(text.lower())
+    filtered_words = [word for word in words if word not in stop_words and word.isalnum()]
+
+    # Create keyword candidates (2-grams and 3-grams)
+    keyword_candidates = []
+    for i in range(len(filtered_words)):
+        if i < len(filtered_words) - 1:
+            keyword_candidates.append(f"{filtered_words[i]} {filtered_words[i+1]}")  # 2-gram
+        if i < len(filtered_words) - 2:
+            keyword_candidates.append(f"{filtered_words[i]} {filtered_words[i+1]} {filtered_words[i+2]}")  # 3-gram
+
+    # Count keyword occurrences
+    keyword_count = Counter(keyword_candidates)
+
+    # Filter for keywords that appear at least 3 times and don't contain only prepositions or fillers
+    keywords = {keyword: count for keyword, count in keyword_count.items() if count >= 3 and not keyword.split() == stop_words}
+
+    return keywords
+
+def extract_keywords_in_bulk(urls, keywords_list):
+    """Extracts keywords that appear at least 3 times for a list of URLs."""
+
+    keyword_data = []
+    for url, keywords in zip(urls, keywords_list):
+        keyword_densities = extract_keywords(url)
+        if keyword_densities:
+            keyword_data.append([url] + [keyword_densities.get(keyword, 0) for keyword in keywords])
+
+    return keyword_data
+
+def upload_files():
+    """Opens file dialogs for selecting URL and keyword files."""
+
+    url_file = filedialog.askopenfilename(title="Select URL File", filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
+    keyword_file = filedialog.askopenfilename(title="Select Keyword File", filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
+
+    if url_file and keyword_file:
+        with open(url_file, 'r') as f:
+            urls = [line.strip() for line in f.readlines()]
+        with open(keyword_file, 'r') as f:
+            keywords_list = [line.strip().split(',') for line in f.readlines()]
+        process_data(urls, keywords_list)
+
+def process_data(urls, keywords_list):
+    """Processes URLs and keywords to extract and save keyword densities to CSV."""
+
+    keyword_data = extract_keywords_in_bulk(urls, keywords_list)
+
+    if keyword_data:
+        # Create and write to CSV file
+        with open('keyword_densities.csv', 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['URL'] + keywords_list[0])  # Assuming all keyword files have the same format
+            writer.writerows(keyword_data)
+        print("Keyword densities saved to 'keyword_densities.csv'")
+    else:
+        print("No keywords found for the provided URLs.")
+
+# Create main window
+root = tk.Tk()
+root.title("Keyword Density Extractor")
+
+# Button to upload files
+upload_button = tk.Button(root, text="Upload Files", command=upload_files)
+upload_button.pack(padx=10)
